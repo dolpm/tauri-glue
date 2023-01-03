@@ -188,8 +188,6 @@ pub fn bind_command(args: TokenStream, input: TokenStream) -> TokenStream {
         )
 
     };
-    println!("{}", bindgen_tokens);
-
 
     bindgen_tokens.into()
 }
