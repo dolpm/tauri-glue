@@ -1,0 +1,8 @@
+[package]
+name = "tauri-glue"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+macro = { path = "./macro" }
+wasm-bindgen = "0.2.83"
