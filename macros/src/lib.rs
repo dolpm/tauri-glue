@@ -186,7 +186,10 @@ pub fn bind_command(args: TokenStream, input: TokenStream) -> TokenStream {
                 pub #if_async fn #fn_name(#(#params),*) #ret
             }
         )
+
     };
+    println!("{}", bindgen_tokens);
+
 
     bindgen_tokens.into()
 }

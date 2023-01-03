@@ -1,2 +1,2 @@
-pub use r#macro::*;
-pub use wasm_bindgen::*;
+pub use macros::*;
+pub use wasm_bindgen::prelude::*;

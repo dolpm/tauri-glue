@@ -4,6 +4,10 @@ proc macro support for interfacing between rust frontends and tauri. this is qui
 ## Example usage
 1. create a tauri command:
    ```rust
+   use tauri_glue::*;
+   
+   ...
+   
    #[tauri::command]
    fn hello(name: &str) -> Result<String, String> {
      Ok(format!("Hello from Tauri, {name} :P"))
