@@ -29,3 +29,4 @@ proc macro support for interfacing between rust frontends and tauri. this is qui
      }
    }
    ```
+5. ![example](./example.png)
