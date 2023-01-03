@@ -10,7 +10,9 @@ proc macro support for interfacing between rust frontends and tauri. this is qui
    }
    ```
 2. in the frontend, include the dependency:
-   ```tauri-glue = { git = "https://github.com/DPM97/tauri-glue" }```
+   ```toml
+   tauri-glue = { git = "https://github.com/DPM97/tauri-glue" }
+   ```
 3. before calling the command, create the bindings:
    ```rust
    #[tauri_glue::bind_command(name = hello)]
