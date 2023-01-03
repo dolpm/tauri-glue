@@ -1,15 +1,15 @@
 extern crate proc_macro;
-use proc_macro::*;
+use proc_macro2::*;
 use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 
-fn find_arg(args: &Vec<&[TokenTree]>, arg_name: &str) -> Option<String> {
+fn find_arg(args: &Vec<&[proc_macro::TokenTree]>, arg_name: &str) -> Option<String> {
     match args.iter().find(|&&p| {
         p.len() == 3
             && match &p[0] {
-                TokenTree::Ident(v1) => {
+                proc_macro::TokenTree::Ident(v1) => {
                     v1.to_string() == arg_name
                         && match &p[1] {
-                            TokenTree::Punct(v2) => v2.as_char() == '=',
+                            proc_macro::TokenTree::Punct(v2) => v2.as_char() == '=',
                             _ => false,
                         }
                 }
@@ -23,34 +23,41 @@ fn find_arg(args: &Vec<&[TokenTree]>, arg_name: &str) -> Option<String> {
 
 struct BoundFunctionParam {
     name: String,
-    t: String,
+    t: Vec<TokenTree>,
 }
 
 impl ToTokens for BoundFunctionParam {
     fn to_tokens(&self, tokens: &mut quote::__private::TokenStream) {
         tokens.append(format_ident!("{}", self.name));
-        tokens.append(quote::__private::Punct::new(
-            ':',
-            quote::__private::Spacing::Alone,
-        ));
-        tokens.append(format_ident!("{}", self.t));
+        tokens.append(Punct::new(':', quote::__private::Spacing::Alone));
+        tokens.append_all(self.t.iter());
     }
 }
 
 struct BoundFunction {
     name: String,
     is_async: bool,
+    is_pub: bool,
     params: Vec<BoundFunctionParam>,
-    return_type: String,
+    return_type: Vec<TokenTree>,
 }
 
 fn parse_fn(input: TokenStream) -> BoundFunction {
     let input = input.into_iter().collect::<Vec<_>>();
+    println!("{:#?}", input);
 
     let is_async = input
         .iter()
         .find(|p| match p {
             TokenTree::Ident(v) => v.to_string() == "async",
+            _ => false,
+        })
+        .is_some();
+
+    let is_pub = input
+        .iter()
+        .find(|p| match p {
+            TokenTree::Ident(v) => v.to_string() == "pub",
             _ => false,
         })
         .is_some();
@@ -81,26 +88,23 @@ fn parse_fn(input: TokenStream) -> BoundFunction {
         None => vec![],
         Some(g) => {
             let ts = g.stream().into_iter().collect::<Vec<_>>();
-            let mut result = vec![];
-            for (i, t) in ts.iter().enumerate() {
-                if i == 0
-                    || (i + 1 < ts.len()
-                        && match &ts[i + 1] {
-                            TokenTree::Punct(p) => p.as_char() == ':',
-                            _ => false,
-                        })
-                {
-                    result.push(BoundFunctionParam {
-                        name: t.to_string(),
-                        t: ts[i + 2].to_string(),
-                    });
-                }
-            }
-            result
+            let ts = ts
+                .split(|t| match t {
+                    TokenTree::Punct(c) => c.as_char() == ',',
+                    _ => false,
+                })
+                .collect::<Vec<&[TokenTree]>>();
+
+            ts.into_iter()
+                .map(|tree| BoundFunctionParam {
+                    name: tree[0].to_string(),
+                    t: tree[2..].to_vec(),
+                })
+                .collect()
         }
     };
 
-    let mut return_type = ";".to_string();
+    let mut return_type = vec![TokenTree::Punct(Punct::new(';', Spacing::Alone))];
     for (i, t) in input.iter().enumerate() {
         if match t {
             TokenTree::Punct(v1) => {
@@ -112,29 +116,29 @@ fn parse_fn(input: TokenStream) -> BoundFunction {
             }
             _ => false,
         } {
-            return_type = input[i..]
-                .to_vec()
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<String>>()
-                .join("");
+            return_type = input[i..].to_vec();
+            break;
         }
     }
 
     BoundFunction {
         name: fn_name,
         is_async,
+        is_pub,
         params,
         return_type,
     }
 }
 
 #[proc_macro_attribute]
-pub fn bind_command(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn bind_command(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let args = args.into_iter().collect::<Vec<_>>();
     let args = args
         .split(|t| match t {
-            TokenTree::Punct(p) => p.as_char() == ',',
+            proc_macro::TokenTree::Punct(p) => p.as_char() == ',',
             _ => false,
         })
         .collect::<Vec<_>>();
@@ -144,7 +148,7 @@ pub fn bind_command(args: TokenStream, input: TokenStream) -> TokenStream {
         None => panic!("must include the argument: name"),
     };
 
-    let parsed_fn = parse_fn(input);
+    let parsed_fn = parse_fn(input.into());
 
     let bindgen_tokens = {
         let fn_param_names = parsed_fn
@@ -170,23 +174,27 @@ pub fn bind_command(args: TokenStream, input: TokenStream) -> TokenStream {
             quote! {}
         };
 
-        // TODO: pub
+        let if_pub = if parsed_fn.is_pub {
+            quote! {pub}
+        } else {
+            quote! {}
+        };
 
         let params = parsed_fn.params;
 
-        let ret = parsed_fn
-            .return_type
-            .parse::<quote::__private::TokenStream>()
-            .expect("failed");
+        let ret = {
+            let mut s = TokenStream::new();
+            s.append_all(parsed_fn.return_type.iter());
+            s
+        };
 
         quote!(
             #[wasm_bindgen(inline_js = #export)]
             extern "C" {
                 #catch
-                pub #if_async fn #fn_name(#(#params),*) #ret
+                #if_pub #if_async fn #fn_name(#(#params),*) #ret
             }
         )
-
     };
 
     bindgen_tokens.into()
