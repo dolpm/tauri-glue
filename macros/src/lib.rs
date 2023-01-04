@@ -35,9 +35,7 @@ impl ToTokens for BoundFunctionParam {
 }
 
 struct BoundFunction {
-    name: String,
-    is_async: bool,
-    is_pub: bool,
+    pred: Vec<TokenTree>,
     params: Vec<BoundFunctionParam>,
     return_type: Vec<TokenTree>,
 }
@@ -45,26 +43,10 @@ struct BoundFunction {
 fn parse_fn(input: TokenStream) -> BoundFunction {
     let input = input.into_iter().collect::<Vec<_>>();
 
-    let is_async = input
-        .iter()
-        .find(|p| match p {
-            TokenTree::Ident(v) => v.to_string() == "async",
-            _ => false,
-        })
-        .is_some();
-
-    let is_pub = input
-        .iter()
-        .find(|p| match p {
-            TokenTree::Ident(v) => v.to_string() == "pub",
-            _ => false,
-        })
-        .is_some();
-
-    let fn_name = match &input[input
+    let pred = input
         .iter()
         .enumerate()
-        .find_map(|(i, p)| match p {
+        .find_map(|(i, t)| match t {
             TokenTree::Ident(v) => {
                 if v.to_string() == "fn" {
                     Some(i + 1)
@@ -74,18 +56,10 @@ fn parse_fn(input: TokenStream) -> BoundFunction {
             }
             _ => None,
         })
-        .expect("couldn't find function name")]
-    {
-        TokenTree::Ident(v) => v.to_string(),
-        _ => panic!("couldn't find function name"),
-    };
+        .expect("failed to find pred");
 
-    let params = match input.iter().find_map(|p| match p {
-        TokenTree::Group(g) => Some(g),
-        _ => None,
-    }) {
-        None => vec![],
-        Some(g) => {
+    let params = match &input[pred + 1] {
+        TokenTree::Group(g) => {
             let ts = g.stream().into_iter().collect::<Vec<_>>();
             let ts = ts
                 .split(|t| match t {
@@ -101,31 +75,13 @@ fn parse_fn(input: TokenStream) -> BoundFunction {
                 })
                 .collect()
         }
+        _ => panic!("couldn't find group"),
     };
 
-    let mut return_type = vec![TokenTree::Punct(Punct::new(';', Spacing::Alone))];
-    for (i, t) in input.iter().enumerate() {
-        if match t {
-            TokenTree::Punct(v1) => {
-                v1.as_char() == '-'
-                    && match &input[i + 1] {
-                        TokenTree::Punct(v2) => v2.as_char() == '>',
-                        _ => false,
-                    }
-            }
-            _ => false,
-        } {
-            return_type = input[i..].to_vec();
-            break;
-        }
-    }
-
     BoundFunction {
-        name: fn_name,
-        is_async,
-        is_pub,
+        pred: input[..=pred].to_vec(),
         params,
-        return_type,
+        return_type: input[pred + 2..].to_vec(),
     }
 }
 
@@ -161,37 +117,26 @@ pub fn bind_command(
             "export async function {command}({fn_param_names}) {{ return await window.__TAURI_INVOKE__('{command}', {{ {fn_param_names} }}); }}",
         );
 
-        let fn_name = format_ident!("{}", parsed_fn.name);
+        let (pred, params, return_type) = (
+            {
+                let mut stream = TokenStream::new();
+                stream.append_all(parsed_fn.pred);
+                stream
+            },
+            parsed_fn.params,
+            {
+                let mut stream = TokenStream::new();
+                stream.append_all(parsed_fn.return_type);
+                stream
+            },
+        );
 
-        let catch = quote! {
-            #[wasm_bindgen(catch)]
-        };
-
-        let if_async = if parsed_fn.is_async {
-            quote! {async}
-        } else {
-            quote! {}
-        };
-
-        let if_pub = if parsed_fn.is_pub {
-            quote! {pub}
-        } else {
-            quote! {}
-        };
-
-        let params = parsed_fn.params;
-
-        let ret = {
-            let mut s = TokenStream::new();
-            s.append_all(parsed_fn.return_type.iter());
-            s
-        };
-
+        // TODO: remove default catch
         quote!(
             #[wasm_bindgen(inline_js = #export)]
             extern "C" {
-                #catch
-                #if_pub #if_async fn #fn_name(#(#params),*) #ret
+                #[wasm_bindgen(catch)]
+                #pred(#(#params),*) #return_type
             }
         )
     };
