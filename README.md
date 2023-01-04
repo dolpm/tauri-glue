@@ -1,5 +1,5 @@
 # tauri-glue
-a proc macro for interfacing between rust frontends (e.g., [leptos](https://github.com/gbj/leptos)) and [tauri](https://github.com/tauri-apps/tauri) (i.e., a rust-based desktop-app backend). at the moment it's limited to types that interface well with JS (basically primitives heh) :)
+ a proc macro for interfacing between rust frontends (e.g., [leptos](https://github.com/gbj/leptos)) and [tauri](https://github.com/tauri-apps/tauri) (i.e., a rust-based desktop-app backend). at the moment it's limited to types that implement    ```wasm_bindgen::convert::IntoWasmAbi``` :)
 
 ## Example usage
 1. create a tauri command:

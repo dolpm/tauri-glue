@@ -131,7 +131,7 @@ pub fn bind_command(
             },
         );
 
-        // TODO: remove default catch
+        // TODO: remove default catch (i.e., only if result return type)
         quote!(
             #[wasm_bindgen(inline_js = #export)]
             extern "C" {
