@@ -36,8 +36,9 @@ impl ToTokens for BoundFunctionParam {
 
 struct BoundFunction {
     pred: Vec<TokenTree>,
+    fn_name: TokenTree,
     params: Vec<BoundFunctionParam>,
-    return_type: Vec<TokenTree>,
+    rest: Vec<TokenTree>,
 }
 
 fn parse_fn(input: TokenStream) -> BoundFunction {
@@ -79,9 +80,10 @@ fn parse_fn(input: TokenStream) -> BoundFunction {
     };
 
     BoundFunction {
-        pred: input[..=pred].to_vec(),
+        pred: input[..pred].to_vec(),
+        fn_name: input[pred].clone(),
         params,
-        return_type: input[pred + 2..].to_vec(),
+        rest: input[pred + 2..input.len()].to_vec(),
     }
 }
 
@@ -114,32 +116,112 @@ pub fn bind_command(
             .join(",");
 
         let export = format!(
-            "export async function {command}({fn_param_names}) {{ return await window.__TAURI_INVOKE__('{command}', {{ {fn_param_names} }}); }}",
+            "export async function __{command}({fn_param_names}) {{ return await window.__TAURI_INVOKE__('{command}', {{ {fn_param_names} }}); }}",
         );
 
-        let (pred, params, return_type) = (
+        let (pred, priv_fn_name, pub_fn_name, params, rest) = (
             {
                 let mut stream = TokenStream::new();
                 stream.append_all(parsed_fn.pred);
                 stream
             },
+            format_ident!("__{}", parsed_fn.fn_name.to_string()),
+            parsed_fn.fn_name,
             parsed_fn.params,
             {
                 let mut stream = TokenStream::new();
-                stream.append_all(parsed_fn.return_type);
+                stream.append_all(parsed_fn.rest[..parsed_fn.rest.len() - 1].iter());
                 stream
             },
         );
 
-        // TODO: remove default catch (i.e., only if result return type)
+        let param_names = params
+            .iter()
+            .map(|p| format_ident!("{}", p.name))
+            .collect::<Vec<_>>();
+
+        let await_priv = if pred.clone().into_iter().any(|v| v.to_string() == "async") {
+            let mut stream = TokenStream::new();
+            stream.append(TokenTree::Punct(Punct::new('.', Spacing::Alone)));
+            stream.append(format_ident!("await"));
+            stream
+        } else {
+            TokenStream::new()
+        };
+
         quote!(
-            #[wasm_bindgen(inline_js = #export)]
+            #[_wasm_bindgen(inline_js = #export)]
             extern "C" {
-                #[wasm_bindgen(catch)]
-                #pred(#(#params),*) #return_type
+                #pred #priv_fn_name(#(#param_names: String),*) -> _jsv;
+            }
+
+            #pred #pub_fn_name(#(#params),*) #rest {
+                _bincode_deserialize(
+                    &_u8a::new(
+                        &#priv_fn_name(
+                            #(
+                                _bincode_serialize(&#param_names)
+                                    .expect("failed to serialize parameter")
+                                    .to_json()
+                                    .unwrap()
+                            ),*
+                        )#await_priv,
+                    )
+                    .to_vec()[..],
+                )
+                .expect("failed to deserialize payload")
             }
         )
     };
 
     bindgen_tokens.into()
+}
+
+#[proc_macro_attribute]
+pub fn command(
+    _args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let parsed_fn = parse_fn(input.into());
+
+    let (pred, priv_fn_name, pub_fn_name, params, rest) = (
+        {
+            let mut stream = TokenStream::new();
+            stream.append_all(parsed_fn.pred);
+            stream
+        },
+        format_ident!("__{}", parsed_fn.fn_name.to_string()),
+        parsed_fn.fn_name,
+        parsed_fn.params,
+        {
+            let mut stream = TokenStream::new();
+            stream.append_all(parsed_fn.rest);
+            stream
+        },
+    );
+
+    let param_names = params
+        .iter()
+        .map(|p| format_ident!("{}", p.name))
+        .collect::<Vec<_>>();
+
+    let tokens = {
+        quote!(
+            #pred #priv_fn_name(#(#params),*) #rest
+
+            #[tauri::command]
+            fn #pub_fn_name(#(#param_names: &str),*) -> Vec<u8> {
+                _bincode_serialize(&__hello(
+                    #(
+                        _bincode_deserialize(
+                            &_serde_json::from_str::<Vec<u8>>(#param_names).unwrap()[..]
+                        ).expect("failed to deserialize parameter")
+                    ),*
+                ))
+                .expect("failed to serialize")
+            }
+        )
+    };
+
+    tokens.into()
 }
