@@ -44,7 +44,6 @@ struct BoundFunction {
 
 fn parse_fn(input: TokenStream) -> BoundFunction {
     let input = input.into_iter().collect::<Vec<_>>();
-    println!("{:#?}", input);
 
     let is_async = input
         .iter()
