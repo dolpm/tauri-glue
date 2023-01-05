@@ -111,7 +111,18 @@ pub fn bind_command(
         let fn_param_names = parsed_fn
             .params
             .iter()
-            .map(|p| p.name.clone())
+            .map(|p| {
+                let mut chars = p.name.chars().collect::<Vec<_>>();
+
+                (1..chars.len()).for_each(|i| {
+                    if chars[i - 1] == '_' {
+                        chars[i] = chars[i].to_ascii_uppercase();
+                        chars.remove(i - 1);
+                    }
+                });
+
+                chars.into_iter().collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join(",");
 
@@ -165,7 +176,7 @@ pub fn bind_command(
                                     .to_json()
                                     .unwrap()
                             ),*
-                        )#await_priv,
+                        )#await_priv
                     )
                     .to_vec()[..],
                 )
