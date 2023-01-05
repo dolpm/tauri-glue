@@ -222,7 +222,7 @@ pub fn command(
 
             #[tauri::command]
             fn #pub_fn_name(#(#param_names: &str),*) -> Vec<u8> {
-                _bincode_serialize(&__hello(
+                _bincode_serialize(&#priv_fn_name(
                     #(
                         _bincode_deserialize(
                             &_serde_json::from_str::<Vec<u8>>(#param_names).unwrap()[..]
